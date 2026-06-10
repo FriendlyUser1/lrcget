@@ -37,3 +37,9 @@ class TrackLookupResult(TypedDict):
     id: int
     remote_obj: LrcGetResponse
     is_expired: bool
+    has_synced_lyrics: bool
+
+
+class MissingTrackLookupResult(TypedDict):
+    id: int
+    is_expired: bool

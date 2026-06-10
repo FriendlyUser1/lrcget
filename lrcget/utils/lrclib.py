@@ -28,12 +28,12 @@ class TrackNotFoundError(LrclibError):
 
 # ? feature: extend with api search when less information present
 def fetch_track(
-    track: str, artist: str, album: str, duration: float
+    track: str, artist: str, album: str, duration: float, timeout: int
 ) -> LrcGetResponse | None:
     """Fetch lyrics from LRCLIB"""
     logger.debug("Requesting lyrics for %s - %s", artist, track)
     try:
-        result = lrclib_get(track, artist, album, duration)
+        result = lrclib_get(track, artist, album, duration, timeout)
         logger.debug("Received lyrics for %s - %s", artist, track)
         return result
     except TrackNotFoundError:
@@ -53,10 +53,7 @@ def fetch_track(
 
 
 def lrclib_get(
-    track: str,
-    artist: str,
-    album: str,
-    length: float,
+    track: str, artist: str, album: str, length: float, timeout: int
 ) -> LrcGetResponse:
     """Get lyrics by specifics from LRCLIB
 
@@ -83,7 +80,9 @@ def lrclib_get(
 
     logger.debug("Calling LRCLIB /get with params: %s", params)
 
-    res = requests.get(f"{BASE_URL}/get", params=params, headers=HEADERS, timeout=15)
+    res = requests.get(
+        f"{BASE_URL}/get", params=params, headers=HEADERS, timeout=timeout
+    )
 
     logger.debug("LRCLIB response status: %s", res.status_code)
 

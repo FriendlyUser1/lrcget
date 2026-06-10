@@ -4,7 +4,13 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from lrcget.utils.types import LrcGetResponse, TrackInfo, TrackLookupResult, TrackRecord
+from lrcget.utils.types import (
+    LrcGetResponse,
+    MissingTrackLookupResult,
+    TrackInfo,
+    TrackLookupResult,
+    TrackRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +41,26 @@ def init_db():
         cur.execute(
             """CREATE TABLE IF NOT EXISTS tracks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            remote_id INTEGER NOT NULL,
-            remote_obj JSON NOT NULL,
+            remote_id INTEGER,
+            remote_obj JSON,
             last_checked TEXT DEFAULT CURRENT_TIMESTAMP,
             track TEXT NOT NULL,
             artist TEXT NOT NULL,
             album TEXT NOT NULL,
             duration FLOAT NOT NULL,
             synced_lyrics TEXT
+        );"""
+        )
+
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS missing_tracks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            last_checked TEXT DEFAULT CURRENT_TIMESTAMP,
+            track TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            album TEXT NOT NULL,
+            duration FLOAT NOT NULL,
+            UNIQUE(track, artist, album, duration)
         );"""
         )
 
@@ -189,12 +207,20 @@ def read_track(
             row_id = row["id"]
             last_checked = datetime.fromisoformat(row["last_checked"])
             update_due = datetime.now() - last_checked > timedelta(days=3)
+            has_synced_lyrics = bool(row["synced_lyrics"])
 
             cached_track: LrcGetResponse = json.loads(row["remote_obj"])
+            is_instrumental = bool(cached_track.get("instrumental"))
 
-            if update_due and not row["synced_lyrics"]:
+            if update_due and not has_synced_lyrics and not is_instrumental:
                 logger.info(
                     "Cache expired for %s - %s; caller should refresh",
+                    artist,
+                    track,
+                )
+            elif update_due and not has_synced_lyrics and is_instrumental:
+                logger.info(
+                    "Cache expired for %s - %s, but track is instrumental; caller may skip refresh",
                     artist,
                     track,
                 )
@@ -203,6 +229,7 @@ def read_track(
                 "id": row_id,
                 "remote_obj": cached_track,
                 "is_expired": update_due,
+                "has_synced_lyrics": has_synced_lyrics,
             }
 
         logger.debug(
@@ -224,6 +251,157 @@ def read_track(
             exc_info=True,
         )
         raise
+    finally:
+        if db:
+            db.close()
+
+
+def read_missing_track(
+    track: str, artist: str, album: str, duration: float
+) -> MissingTrackLookupResult | None:
+    """Read a known-missing track cache entry."""
+    db = None
+
+    try:
+        db = get_connection()
+        cur = db.cursor()
+
+        cur.execute(
+            "SELECT id, last_checked FROM missing_tracks WHERE track = ? AND artist = ? AND album = ? AND duration = ?",
+            (track, artist, album, duration),
+        )
+
+        row = cur.fetchone()
+
+        if not row:
+            return None
+
+        last_checked = datetime.fromisoformat(row["last_checked"])
+        is_expired = datetime.now() - last_checked > timedelta(days=3)
+
+        return {
+            "id": row["id"],
+            "is_expired": is_expired,
+        }
+    except sqlite3.Error as e:
+        logger.error(
+            "Database read failed for missing track '%s - %s' on '%s': %s",
+            artist,
+            track,
+            album,
+            e,
+            exc_info=True,
+        )
+        raise
+    finally:
+        if db:
+            db.close()
+
+
+def write_missing_track(
+    local_track: TrackInfo, existing_id: int | None = None
+) -> int | None:
+    """Create or refresh a known-missing track cache entry."""
+    db = None
+
+    try:
+        db = get_connection()
+        cur = db.cursor()
+
+        if existing_id:
+            cur.execute(
+                """UPDATE missing_tracks
+                SET last_checked = CURRENT_TIMESTAMP
+                WHERE id = ?""",
+                (existing_id,),
+            )
+
+            db.commit()
+
+            if cur.rowcount != 1:
+                logger.error(
+                    "Failed to refresh missing-track cache for %s - %s (id %s)",
+                    local_track["artist"],
+                    local_track["track"],
+                    existing_id,
+                )
+                return None
+
+            logger.info(
+                "Refreshed missing-track cache for %s - %s (id %s)",
+                local_track["artist"],
+                local_track["track"],
+                existing_id,
+            )
+
+            return existing_id
+
+        cur.execute(
+            """INSERT INTO missing_tracks (track, artist, album, duration)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(track, artist, album, duration)
+            DO UPDATE SET last_checked = CURRENT_TIMESTAMP""",
+            (
+                local_track["track"],
+                local_track["artist"],
+                local_track["album"],
+                local_track["duration"],
+            ),
+        )
+
+        db.commit()
+
+        cache_entry = read_missing_track(
+            local_track["track"],
+            local_track["artist"],
+            local_track["album"],
+            local_track["duration"],
+        )
+        if not cache_entry:
+            return None
+
+        logger.info(
+            "Stored missing-track cache for %s - %s (id %s)",
+            local_track["artist"],
+            local_track["track"],
+            cache_entry["id"],
+        )
+
+        return cache_entry["id"]
+    except sqlite3.Error as e:
+        logger.error(
+            "Database error while writing missing-track cache for '%s - %s': %s",
+            local_track["artist"],
+            local_track["track"],
+            e,
+            exc_info=True,
+        )
+        return None
+    finally:
+        if db:
+            db.close()
+
+
+def delete_missing_track(track: str, artist: str, album: str, duration: float) -> None:
+    """Remove known-missing cache entry once lyrics are available."""
+    db = None
+
+    try:
+        db = get_connection()
+        cur = db.cursor()
+        cur.execute(
+            "DELETE FROM missing_tracks WHERE track = ? AND artist = ? AND album = ? AND duration = ?",
+            (track, artist, album, duration),
+        )
+        db.commit()
+    except sqlite3.Error as e:
+        logger.error(
+            "Failed to delete missing-track cache for '%s - %s': %s",
+            artist,
+            track,
+            e,
+            exc_info=True,
+        )
     finally:
         if db:
             db.close()
