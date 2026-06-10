@@ -11,7 +11,7 @@ from lrcget.db.database import (
     write_track,
 )
 from lrcget.utils.files import download_lyrics, get_track_info, get_tracks
-from lrcget.utils.lrclib import fetch_track
+from lrcget.utils.lrclib import fetch_track, LrclibTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ def run_sync(music_dir: str, timeout: int) -> int:
 
         fetched_track = None
         track_db_id = None
+        fetch_timed_out = False
 
         missing_lookup = read_missing_track(**track_info)
         if missing_lookup and not missing_lookup["is_expired"]:
@@ -81,16 +82,30 @@ def run_sync(music_dir: str, timeout: int) -> int:
                         track_info["artist"],
                         track_info["track"],
                     )
-                    fetched_track = fetch_track(**track_info, timeout=timeout)
+                    try:
+                        fetched_track = fetch_track(**track_info, timeout=timeout)
+                    except LrclibTimeoutError:
+                        fetch_timed_out = True
             else:
                 logger.info(
                     "Fetching lyrics from LRCLIB for %s - %s",
                     track_info["artist"],
                     track_info["track"],
                 )
-                fetched_track = fetch_track(**track_info, timeout=timeout)
+                try:
+                    fetched_track = fetch_track(**track_info, timeout=timeout)
+                except LrclibTimeoutError:
+                    fetch_timed_out = True
 
         if not fetched_track:
+            if fetch_timed_out:
+                logger.warning(
+                    "Skipping %s - %s due to timeout; will retry on next run",
+                    track_info["artist"],
+                    track_info["track"],
+                )
+                continue
+
             write_missing_track(
                 track_info,
                 existing_id=missing_lookup["id"] if missing_lookup else None,

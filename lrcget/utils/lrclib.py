@@ -26,6 +26,12 @@ class TrackNotFoundError(LrclibError):
     pass
 
 
+class LrclibTimeoutError(LrclibError):
+    """LRCLIB request timed out"""
+
+    pass
+
+
 # ? feature: extend with api search when less information present
 def fetch_track(
     track: str, artist: str, album: str, duration: float, timeout: int
@@ -38,6 +44,16 @@ def fetch_track(
         return result
     except TrackNotFoundError:
         logger.warning("Track not found on LRCLIB: %s - %s", artist, track)
+    except requests.Timeout as e:
+        logger.warning(
+            "LRCLIB request timed out after %ss for %s - %s",
+            timeout,
+            artist,
+            track,
+        )
+        raise LrclibTimeoutError(
+            "Timed out fetching lyrics for '%s - %s'" % (artist, track)
+        ) from e
     except requests.RequestException as e:
         logger.error(
             "LRCLIB request failed for %s - %s: %s",
