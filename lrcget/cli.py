@@ -11,7 +11,7 @@ from lrcget.db.database import (
     write_track,
 )
 from lrcget.utils.files import download_lyrics, get_track_info, get_tracks
-from lrcget.utils.lrclib import fetch_track, LrclibTimeoutError
+from lrcget.utils.lrclib import fetch_track, LrclibTimeoutError, TrackNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,19 @@ def run_sync(music_dir: str, timeout: int) -> int:
                     )
                     try:
                         fetched_track = fetch_track(**track_info, timeout=timeout)
+                    except TrackNotFoundError:
+                        write_missing_track(
+                            track_info,
+                            existing_id=(
+                                missing_lookup["id"] if missing_lookup else None
+                            ),
+                        )
+                        logger.warning(
+                            "No lyrics available for %s - %s",
+                            track_info["artist"],
+                            track_info["track"],
+                        )
+                        continue
                     except LrclibTimeoutError:
                         fetch_timed_out = True
             else:
@@ -94,6 +107,17 @@ def run_sync(music_dir: str, timeout: int) -> int:
                 )
                 try:
                     fetched_track = fetch_track(**track_info, timeout=timeout)
+                except TrackNotFoundError:
+                    write_missing_track(
+                        track_info,
+                        existing_id=missing_lookup["id"] if missing_lookup else None,
+                    )
+                    logger.warning(
+                        "No lyrics available for %s - %s",
+                        track_info["artist"],
+                        track_info["track"],
+                    )
+                    continue
                 except LrclibTimeoutError:
                     fetch_timed_out = True
 
@@ -106,10 +130,6 @@ def run_sync(music_dir: str, timeout: int) -> int:
                 )
                 continue
 
-            write_missing_track(
-                track_info,
-                existing_id=missing_lookup["id"] if missing_lookup else None,
-            )
             logger.warning(
                 "No lyrics available for %s - %s",
                 track_info["artist"],

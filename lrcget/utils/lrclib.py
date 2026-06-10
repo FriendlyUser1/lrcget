@@ -42,8 +42,6 @@ def fetch_track(
         result = lrclib_get(track, artist, album, duration, timeout)
         logger.debug("Received lyrics for %s - %s", artist, track)
         return result
-    except TrackNotFoundError:
-        logger.warning("Track not found on LRCLIB: %s - %s", artist, track)
     except requests.Timeout as e:
         logger.warning(
             "LRCLIB request timed out after %ss for %s - %s",
