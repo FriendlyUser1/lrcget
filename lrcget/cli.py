@@ -16,7 +16,27 @@ from lrcget.utils.lrclib import fetch_track, LrclibTimeoutError, TrackNotFoundEr
 logger = logging.getLogger(__name__)
 
 
-def run_sync(music_dir: str, timeout: int) -> int:
+def _parse_extensions(exts_arg: str | None) -> list[str] | None:
+    """Parse a comma-separated extension list into normalized suffixes."""
+    if exts_arg is None:
+        return None
+
+    parsed_exts: list[str] = []
+
+    for raw_ext in exts_arg.split(","):
+        normalized = raw_ext.strip().lower()
+        if not normalized:
+            continue
+
+        if not normalized.startswith("."):
+            normalized = f".{normalized}"
+
+        parsed_exts.append(normalized)
+
+    return parsed_exts
+
+
+def run_sync(music_dir: str, timeout: int, exts: list[str] | None = None) -> int:
     logger.info("Starting lyric sync for directory: %s", music_dir)
     init_db()
 
@@ -25,7 +45,7 @@ def run_sync(music_dir: str, timeout: int) -> int:
         logger.error("Music directory is not a directory: %s", music_dir)
         return 1
 
-    track_list = get_tracks(music_path)
+    track_list = get_tracks(music_path, audio_exts=exts)
 
     for track in track_list:
         logger.debug("Processing track file: %s", track)
@@ -38,6 +58,7 @@ def run_sync(music_dir: str, timeout: int) -> int:
         fetched_track = None
         track_db_id = None
         fetch_timed_out = False
+        is_cached = False
 
         missing_lookup = read_missing_track(**track_info)
         if missing_lookup and not missing_lookup["is_expired"]:
@@ -59,8 +80,9 @@ def run_sync(music_dir: str, timeout: int) -> int:
         if track_lookup and not track_lookup["is_expired"]:
             fetched_track = track_lookup["remote_obj"]
             track_db_id = track_lookup["id"]
+            is_cached = True
             delete_missing_track(**track_info)
-            logger.info(
+            logger.debug(
                 "Using cached lyrics for %s - %s",
                 track_info["artist"],
                 track_info["track"],
@@ -76,6 +98,7 @@ def run_sync(music_dir: str, timeout: int) -> int:
                         track_info["track"],
                     )
                     fetched_track = cached_remote
+                    is_cached = True
                 else:
                     logger.info(
                         "Track data for %s - %s expired, fetching",
@@ -154,7 +177,7 @@ def run_sync(music_dir: str, timeout: int) -> int:
                 )
                 continue
 
-        download_lyrics(track, track_db_id)
+        download_lyrics(track, track_db_id, is_cached=is_cached)
 
     logger.info("Finished lyric sync run")
     return 0
@@ -175,6 +198,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-t", "--timeout", type=int, help="LRCLIB fetch timeout (seconds)", default=15
     )
+    parser.add_argument(
+        "--exts",
+        type=str,
+        help="Comma-separated audio extensions to scan (e.g. mp3,flac or .mp3,.flac)",
+    )
     return parser
 
 
@@ -186,7 +214,12 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="[%(levelname)s:%(name)s] %(message)s",
     )
-    return run_sync(args.music_dir, args.timeout)
+
+    exts = _parse_extensions(args.exts)
+    if args.exts is not None and not exts:
+        parser.error("--exts must include at least one valid extension")
+
+    return run_sync(args.music_dir, args.timeout, exts=exts)
 
 
 if __name__ == "__main__":

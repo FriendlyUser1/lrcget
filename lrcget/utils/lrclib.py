@@ -62,6 +62,8 @@ def fetch_track(
         )
     except LrclibError as e:
         logger.error("LRCLIB response error for %s - %s: %s", artist, track, e)
+        if isinstance(e, TrackNotFoundError):
+            raise
 
     return None
 

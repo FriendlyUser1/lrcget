@@ -13,6 +13,8 @@ from lrcget.utils.types import TrackInfo
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_AUDIO_EXTS = [".mp3", ".opus", ".flac", ".ogg", ".wav"]
+
 
 def _first_non_empty_string(value: object) -> str | None:
     """Extract the first non-empty string from mutagen tag values"""
@@ -57,17 +59,25 @@ def _extract_tag_value(mut: object, keys: list[str]) -> str | None:
     return None
 
 
-def get_tracks(music_dir: Path) -> List[Path]:
+def get_tracks(music_dir: Path, audio_exts: list[str] | None = None) -> List[Path]:
     """Get the list of audio files in the given directory"""
-    audio_exts = [".mp3", ".opus", ".flac", ".ogg", ".wav"]
+    selected_exts = {
+        ext.lower() if ext.startswith(".") else f".{ext.lower()}"
+        for ext in (audio_exts or DEFAULT_AUDIO_EXTS)
+        if ext
+    }
     track_list: List[Path] = []
 
-    logger.info("Scanning for audio files under %s", music_dir)
+    logger.info(
+        "Scanning for audio files under %s with extensions: %s",
+        music_dir,
+        ",".join(sorted(selected_exts)),
+    )
 
     for walk in music_dir.walk():
         for file_name in walk[2]:
             file = walk[0] / file_name
-            if file.suffix in audio_exts:
+            if file.suffix.lower() in selected_exts:
                 track_list.append(file)
 
     logger.info("Found %s audio files", len(track_list))
@@ -136,7 +146,7 @@ def get_track_info(track: Path) -> TrackInfo | None:
         "duration": length,
     }
 
-    logger.info(
+    logger.debug(
         "Loaded track metadata: track=%s artist=%s album=%s duration=%ss",
         track_info["track"],
         track_info["artist"],
@@ -147,8 +157,15 @@ def get_track_info(track: Path) -> TrackInfo | None:
     return track_info
 
 
-def download_lyrics(track: Path, track_db_id: int):
+def download_lyrics(track: Path, track_db_id: int, is_cached: bool = False):
     """Download synced lyrics (.lrc) next to the audio file"""
+    if is_cached:
+        logger.debug(
+            "Skipping lyrics write for %s because cached lyrics are in use",
+            track,
+        )
+        return
+
     db = None
 
     try:
@@ -184,6 +201,24 @@ def download_lyrics(track: Path, track_db_id: int):
             return
 
         lrc_path = track.with_suffix(".lrc")
+
+        if lrc_path.exists():
+            try:
+                existing_lyrics = lrc_path.read_text(encoding="utf-8")
+            except OSError as e:
+                logger.warning(
+                    "Failed to read existing lyrics file at %s before update: %s",
+                    lrc_path,
+                    e,
+                )
+            else:
+                if existing_lyrics == synced_lyrics:
+                    logger.debug(
+                        "Skipping lyrics write for %s because lyrics are unchanged",
+                        lrc_path,
+                    )
+                    return
+
         lrc_path.write_text(synced_lyrics, encoding="utf-8")
         logger.info("Wrote synced lyrics to %s", lrc_path)
 
