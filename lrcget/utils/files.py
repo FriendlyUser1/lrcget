@@ -5,11 +5,11 @@ import sqlite3
 from pathlib import Path
 from typing import List
 
+from mutagen import File, MutagenError  # pyright: ignore[reportPrivateImportUsage]
+
 from lrcget.db.database import get_connection
 
 from lrcget.utils.types import TrackInfo
-
-from mutagen import File, MutagenError  # pyright: ignore[reportPrivateImportUsage]
 
 logger = logging.getLogger(__name__)
 
