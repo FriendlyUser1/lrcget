@@ -43,12 +43,12 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             remote_id INTEGER,
             remote_obj JSON,
-            last_checked TEXT DEFAULT CURRENT_TIMESTAMP,
             track TEXT NOT NULL,
             artist TEXT NOT NULL,
             album TEXT NOT NULL,
             duration FLOAT NOT NULL,
-            synced_lyrics TEXT
+            synced_lyrics TEXT,
+            instrumental INTEGER NOT NULL
         );"""
         )
 
@@ -74,7 +74,7 @@ def init_db():
             con.close()
 
 
-# ? feature: add metadata to the top of synced lyrics
+# TODO add metadata to the top of synced lyrics
 # def create_synced_lyrics()
 
 
@@ -91,42 +91,45 @@ def write_track(
         cur = db.cursor()
 
         if existing_id:
-            cur.execute(
-                """UPDATE tracks
-                SET remote_id = ?,
-                    remote_obj = ?,
-                    last_checked = CURRENT_TIMESTAMP,
-                    synced_lyrics = ?
-                WHERE id = ?""",
-                (
-                    fetched_track["id"],
-                    json.dumps(fetched_track),
-                    fetched_track["syncedLyrics"],
-                    existing_id,
-                ),
-            )
-            db.commit()
+            print("ERROR: WE SHOULD NOT BE UPDATING EXISTING RECORDS!")
+            exit(1)
+            # cur.execute(
+            #     """UPDATE tracks
+            #     SET remote_id = ?,
+            #         remote_obj = ?,
+            #         instrumental = ?,
+            #         synced_lyrics = ?
+            #     WHERE id = ?""",
+            #     (
+            #         fetched_track["id"],
+            #         json.dumps(fetched_track),
+            #         fetched_track["instrumental"],
+            #         fetched_track["syncedLyrics"],
+            #         existing_id,
+            #     ),
+            # )
+            # db.commit()
 
-            if cur.rowcount != 1:
-                logger.error(
-                    "Failed to update expired track '%s - %s' for db id %s",
-                    fetched_track["artistName"],
-                    fetched_track["trackName"],
-                    existing_id,
-                )
-                return None
+            # if cur.rowcount != 1:
+            #     logger.error(
+            #         "Failed to update track '%s - %s' for db id %s",
+            #         fetched_track["artistName"],
+            #         fetched_track["trackName"],
+            #         existing_id,
+            #     )
+            #     return None
 
-            logger.info(
-                "Refreshed track '%s - %s' at db id %s",
-                fetched_track["artistName"],
-                fetched_track["trackName"],
-                existing_id,
-            )
-            return existing_id
+            # logger.info(
+            #     "Refreshed track '%s - %s' at db id %s",
+            #     fetched_track["artistName"],
+            #     fetched_track["trackName"],
+            #     existing_id,
+            # )
+            # return existing_id
         else:
             cur.execute(
-                """INSERT INTO tracks (remote_id, remote_obj, track, artist, album, duration, synced_lyrics)
-                VALUES(?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO tracks (remote_id, remote_obj, track, artist, album, duration, synced_lyrics, instrumental)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     fetched_track["id"],
                     json.dumps(fetched_track),
@@ -135,6 +138,7 @@ def write_track(
                     local_track["album"],
                     local_track["duration"],
                     fetched_track["syncedLyrics"],
+                    fetched_track["instrumental"],
                 ),
             )
 
@@ -205,31 +209,14 @@ def read_track(
 
         if row:
             row_id = row["id"]
-            last_checked = datetime.fromisoformat(row["last_checked"])
-            update_due = datetime.now() - last_checked > timedelta(days=3)
-            has_synced_lyrics = bool(row["synced_lyrics"])
-
+            is_instrumental = bool(row["instrumental"])
             cached_track: LrcGetResponse = json.loads(row["remote_obj"])
-            is_instrumental = bool(cached_track.get("instrumental"))
-
-            if update_due and not has_synced_lyrics and not is_instrumental:
-                logger.info(
-                    "Cache expired for %s - %s; caller should refresh",
-                    artist,
-                    track,
-                )
-            elif update_due and not has_synced_lyrics and is_instrumental:
-                logger.info(
-                    "Cache expired for %s - %s, but track is instrumental; caller may skip refresh",
-                    artist,
-                    track,
-                )
 
             return {
                 "id": row_id,
                 "remote_obj": cached_track,
-                "is_expired": update_due,
-                "has_synced_lyrics": has_synced_lyrics,
+                "has_synced_lyrics": bool(row["synced_lyrics"]),
+                "is_instrumental": is_instrumental,
             }
 
         logger.debug(

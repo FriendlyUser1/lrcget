@@ -18,12 +18,12 @@ class TrackRecord(TypedDict):
     id: int
     remote_id: int
     remote_obj: str
-    last_checked: str
     track: str
     artist: str
     album: str
     duration: float
     synced_lyrics: str | None
+    instrumental: int
 
 
 class TrackInfo(TypedDict):
@@ -36,7 +36,7 @@ class TrackInfo(TypedDict):
 class TrackLookupResult(TypedDict):
     id: int
     remote_obj: LrcGetResponse
-    is_expired: bool
+    is_instrumental: bool
     has_synced_lyrics: bool
 
 
