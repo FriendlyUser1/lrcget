@@ -9,7 +9,7 @@ from mutagen import File, MutagenError  # pyright: ignore[reportPrivateImportUsa
 
 from lrcget.db.database import get_connection
 
-from lrcget.utils.types import TrackInfo
+from lrcget.utils.types import KnownTrackInfo, TrackInfo
 
 logger = logging.getLogger(__name__)
 
@@ -125,21 +125,22 @@ def get_track_info(track: Path) -> TrackInfo | None:
         artist_name = _extract_tag_value(mut, ["artist", "ARTIST"])
         album_name = _extract_tag_value(mut, ["album", "ALBUM"])
 
-    if not track_name or not artist_name or not album_name:
-        logger.info("Skipping %s: required tags missing.", track.name)
-        return None
+    # if not track_name or not artist_name or not album_name:
+    #     logger.info("Skipping %s: required tags missing.", track.name)
+    #     return None
 
     raw_length = getattr(mut.info, "length", None)
-    if not isinstance(raw_length, (int, float)):
-        logger.info("Skipping %s: invalid track length.", track.name)
-        return None
+    # if not isinstance(raw_length, (int, float)):
+    #     logger.info("Skipping %s: invalid track length.", track.name)
+    #     return None
 
-    length = round(float(raw_length), 2)
-    if not math.isfinite(length) or length <= 0:
-        logger.info("Skipping %s: non-positive track length.", track.name)
-        return None
+    length = round(float(raw_length), 2) if raw_length else None
+    # if not math.isfinite(length) or length <= 0:
+    #     logger.info("Skipping %s: non-positive track length.", track.name)
+    #     return None
 
     track_info: TrackInfo = {
+        "file": track.stem,
         "track": track_name,
         "artist": artist_name,
         "album": album_name,
@@ -147,7 +148,8 @@ def get_track_info(track: Path) -> TrackInfo | None:
     }
 
     logger.debug(
-        "Loaded track metadata: track=%s artist=%s album=%s duration=%ss",
+        "Loaded track metadata: file=%s, track=%s artist=%s album=%s duration=%ss",
+        track_info["file"],
         track_info["track"],
         track_info["artist"],
         track_info["album"],

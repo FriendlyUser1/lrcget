@@ -18,7 +18,6 @@ class TrackRecord(TypedDict):
     id: int
     remote_id: int
     remote_obj: str
-    last_checked: str
     track: str
     artist: str
     album: str
@@ -26,18 +25,41 @@ class TrackRecord(TypedDict):
     synced_lyrics: str | None
 
 
-class TrackInfo(TypedDict):
+class KnownTrackInfo(TypedDict):
     track: str
     artist: str
     album: str
     duration: float
 
 
+class TrackInfo(TypedDict):
+    file: str
+    track: str | None
+    artist: str | None
+    album: str | None
+    duration: float | None
+
+
+def coerceTrackInfo(track_info: TrackInfo) -> KnownTrackInfo | None:
+    if (
+        track_info["track"] is None
+        or track_info["artist"] is None
+        or track_info["album"] is None
+        or track_info["duration"] is None
+    ):
+        return None
+
+    return KnownTrackInfo(
+        track=track_info["track"],
+        artist=track_info["artist"],
+        album=track_info["album"],
+        duration=track_info["duration"],
+    )
+
+
 class TrackLookupResult(TypedDict):
     id: int
     remote_obj: LrcGetResponse
-    is_expired: bool
-    has_synced_lyrics: bool
 
 
 class MissingTrackLookupResult(TypedDict):

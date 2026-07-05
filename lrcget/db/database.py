@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lrcget.utils.types import (
+    KnownTrackInfo,
     LrcGetResponse,
     MissingTrackLookupResult,
-    TrackInfo,
     TrackLookupResult,
     TrackRecord,
 )
@@ -43,7 +43,6 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             remote_id INTEGER,
             remote_obj JSON,
-            last_checked TEXT DEFAULT CURRENT_TIMESTAMP,
             track TEXT NOT NULL,
             artist TEXT NOT NULL,
             album TEXT NOT NULL,
@@ -80,7 +79,7 @@ def init_db():
 
 def write_track(
     fetched_track: LrcGetResponse,
-    local_track: TrackInfo,
+    local_track: KnownTrackInfo,
     existing_id: int | None = None,
 ) -> int | None:
     """Write remote track data to the database and return the inserted record's id"""
@@ -95,7 +94,6 @@ def write_track(
                 """UPDATE tracks
                 SET remote_id = ?,
                     remote_obj = ?,
-                    last_checked = CURRENT_TIMESTAMP,
                     synced_lyrics = ?
                 WHERE id = ?""",
                 (
@@ -197,39 +195,18 @@ def read_track(
         )
 
         cur.execute(
-            "SELECT * FROM tracks WHERE track = ? AND artist = ? AND album = ? AND duration = ?",
+            "SELECT id, remote_obj FROM tracks WHERE track = ? AND artist = ? AND album = ? AND duration = ?",
             (track, artist, album, duration),
         )
 
         row: TrackRecord | None = cur.fetchone()
 
         if row:
-            row_id = row["id"]
-            last_checked = datetime.fromisoformat(row["last_checked"])
-            update_due = datetime.now() - last_checked > timedelta(days=3)
-            has_synced_lyrics = bool(row["synced_lyrics"])
-
             cached_track: LrcGetResponse = json.loads(row["remote_obj"])
-            is_instrumental = bool(cached_track.get("instrumental"))
-
-            if update_due and not has_synced_lyrics and not is_instrumental:
-                logger.info(
-                    "Cache expired for %s - %s; caller should refresh",
-                    artist,
-                    track,
-                )
-            elif update_due and not has_synced_lyrics and is_instrumental:
-                logger.info(
-                    "Cache expired for %s - %s, but track is instrumental; caller may skip refresh",
-                    artist,
-                    track,
-                )
 
             return {
-                "id": row_id,
+                "id": row["id"],
                 "remote_obj": cached_track,
-                "is_expired": update_due,
-                "has_synced_lyrics": has_synced_lyrics,
             }
 
         logger.debug(
@@ -299,7 +276,7 @@ def read_missing_track(
 
 
 def write_missing_track(
-    local_track: TrackInfo, existing_id: int | None = None
+    local_track: KnownTrackInfo, existing_id: int | None = None
 ) -> int | None:
     """Create or refresh a known-missing track cache entry."""
     db = None
