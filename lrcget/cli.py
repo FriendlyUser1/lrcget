@@ -41,6 +41,7 @@ def run_sync(
     timeout: int,
     exts: list[str] | None = None,
     force_missing: bool = False,
+    ignore_missing: bool = False,
 ) -> int:
     logger.info("Starting lyric sync for directory: %s", music_dir)
     init_db()
@@ -66,6 +67,14 @@ def run_sync(
         is_cached = False
 
         missing_lookup = read_missing_track(**track_info)
+        if missing_lookup and ignore_missing:
+            logger.info(
+                "Skipping known-missing track %s - %s",
+                track_info["artist"],
+                track_info["track"],
+            )
+            continue
+
         if missing_lookup and not missing_lookup["is_expired"] and not force_missing:
             logger.info(
                 "Skipping known-missing track %s - %s",
@@ -208,10 +217,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help="Comma-separated audio extensions to scan (e.g. mp3,flac or .mp3,.flac)",
     )
-    parser.add_argument(
+    missing_group = parser.add_mutually_exclusive_group()
+    missing_group.add_argument(
         "--force-missing",
         action="store_true",
         help="Re-fetch all tracks currently in the known-missing cache, ignoring expiry",
+    )
+    missing_group.add_argument(
+        "--ignore-missing",
+        action="store_true",
+        help="Skip tracks in the known-missing cache, even when the cache entry is expired",
     )
     return parser
 
@@ -230,7 +245,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--exts must include at least one valid extension")
 
     return run_sync(
-        args.music_dir, args.timeout, exts=exts, force_missing=args.force_missing
+        args.music_dir,
+        args.timeout,
+        exts=exts,
+        force_missing=args.force_missing,
+        ignore_missing=args.ignore_missing,
     )
 
 

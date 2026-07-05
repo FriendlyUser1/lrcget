@@ -30,6 +30,18 @@ Enable verbose logs:
 lrcget /path/to/music --verbose
 ```
 
+Skip tracks that are already marked known-missing, even if the cache is expired:
+
+```bash
+lrcget /path/to/music --ignore-missing
+```
+
+Re-fetch known-missing tracks regardless of expiry:
+
+```bash
+lrcget /path/to/music --force-missing
+```
+
 You can also run it as a module:
 
 ```bash
